@@ -24,12 +24,15 @@ jobs:
         run: echo "VERSION=${{ steps.version.outputs.version }}"
 
       - name: Build Docker Image
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          docker build --no-cache \
-            -t ghcr.io/${{ github.repository_owner }}/devsecops-app:$VERSION \
-            -t ghcr.io/${{ github.repository_owner }}/devsecops-app:latest \
-            -f app/Dockerfile app/
+  run: |
+    VERSION=${{ steps.version.outputs.version }}
+    OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+    docker build --no-cache \
+      -t ghcr.io/$OWNER/devsecops-app:$VERSION \
+      -t ghcr.io/$OWNER/devsecops-app:latest \
+      -f app/Dockerfile app/
+
 
       - name: Scan Image with Trivy
         uses: aquasecurity/trivy-action@0.20.0
@@ -43,10 +46,12 @@ jobs:
         run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Push Images
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          docker push ghcr.io/${{ github.repository_owner }}/devsecops-app:$VERSION
-          docker push ghcr.io/${{ github.repository_owner }}/devsecops-app:latest
+  run: |
+    VERSION=${{ steps.version.outputs.version }}
+    OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+    docker push ghcr.io/$OWNER/devsecops-app:$VERSION
+    docker push ghcr.io/$OWNER/devsecops-app:latest
 
       - name: Create GHCR Secret
         run: |
@@ -61,9 +66,12 @@ jobs:
         run: kubectl apply -f k8s/
 
       - name: Patch Deployment With Version
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          kubectl set image deployment/devsecops-app web=ghcr.io/${{ github.repository_owner }}/devsecops-app:$VERSION
+  run: |
+    VERSION=${{ steps.version.outputs.version }}
+    OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+    kubectl set image deployment/devsecops-app web=ghcr.io/$OWNER/devsecops-app:$VERSION
+
 
       - name: Wait for Rollout
         run: kubectl rollout status deployment/devsecops-app

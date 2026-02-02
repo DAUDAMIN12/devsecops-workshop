@@ -14,7 +14,8 @@ spec:
     spec:
       containers:
         - name: web
-          image: ghcr.io/<YOUR_GITHUB_USERNAME>/devsecops-app:latest
+          image: ghcr.io/daudamin12/devsecops-app:latest
+
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
