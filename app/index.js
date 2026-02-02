@@ -1,10 +1,4 @@
 const express = require("express");
 const app = express();
-
-app.get("/", (req, res) => {
-  res.send("Hello from DevSecOps Workshop 🚀");
-});
-
-app.listen(3000, () => {
-  console.log("App running on port 3000");
-});
+app.get("/", (req, res) => res.send("DevSecOps Workshop Working!"));
+app.listen(3000, () => console.log("Running on port 3000"));
