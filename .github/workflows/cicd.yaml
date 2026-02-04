@@ -44,7 +44,7 @@ jobs:
           docker build -t ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }} ./app
 
       # ✅ Trivy scan (fails pipeline on HIGH/CRITICAL)
-      - name: Scan Image with Trivy (non-blocking)
+      -- name: Scan Image with Trivy (non-blocking)
   uses: aquasecurity/trivy-action@master
   with:
     image-ref: ${{ env.IMAGE_NAME }}:${{ env.VERSION }}
@@ -52,6 +52,7 @@ jobs:
     severity: 'CRITICAL,HIGH'
     ignore-unfixed: true
     exit-code: '0'
+
 
 
       # ✅ Push to GHCR
