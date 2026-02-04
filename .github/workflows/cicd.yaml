@@ -5,17 +5,21 @@ on:
     branches: ["main"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: write
+
 env:
-  # ✅ MUST be lowercase for GHCR
+  VERSION: "0.0.1"
   GHCR_REGISTRY: ghcr.io
   IMAGE_OWNER: daudamin12
   IMAGE_REPO: devsecops-app
-  IMAGE_TAG: latest
+  IMAGE_NAME: ghcr.io/daudamin12/devsecops-app
 
 jobs:
-  build_scan_push_deploy:
+  pipeline:
     name: Build + Scan + Push + Deploy
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
 
     steps:
       - name: Checkout
@@ -23,46 +27,49 @@ jobs:
 
       - name: Print version
         run: |
-          echo "VERSION=${{ env.IMAGE_TAG }}"
-          echo "IMAGE=${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }}"
+          echo "VERSION=${{ env.VERSION }}"
+          echo "IMAGE=${{ env.IMAGE_NAME }}:${{ env.VERSION }}"
 
-      # ✅ Recommended: Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ✅ Login to GHCR (uses your repo secret GHCR_PAT)
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ env.IMAGE_OWNER }}
-          password: ${{ secrets.GHCR_PAT }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ✅ Build image locally (tagged)
-      - name: Build Docker Image
+      - name: Build Docker Image (local)
         run: |
-          docker build -t ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }} ./app
+          docker build -t ${{ env.IMAGE_NAME }}:${{ env.VERSION }} ./app
 
-      # ✅ Trivy scan (fails pipeline on HIGH/CRITICAL)
-      -- name: Scan Image with Trivy (non-blocking)
-  uses: aquasecurity/trivy-action@master
-  with:
-    image-ref: ${{ env.IMAGE_NAME }}:${{ env.VERSION }}
-    format: 'table'
-    severity: 'CRITICAL,HIGH'
-    ignore-unfixed: true
-    exit-code: '0'
+      - name: Scan Image with Trivy (NON-BLOCKING)
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
 
-
-
-      # ✅ Push to GHCR
       - name: Push Image to GHCR
         run: |
-          docker push ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }}
+          docker push ${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+          docker tag  ${{ env.IMAGE_NAME }}:${{ env.VERSION }}  ${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.IMAGE_NAME }}:latest
 
-      # ✅ Deploy to Kubernetes (requires kubectl + cluster access on runner)
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
+
       - name: Deploy to Kubernetes
         run: |
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl rollout status deployment/devsecops-app
+          kubectl apply -f k8s/
+          kubectl rollout status deployment/devsecops-app --timeout=180s
+
+      - name: Show Services + Pods
+        run: |
+          kubectl get pods -o wide
+          kubectl get svc -o wide
