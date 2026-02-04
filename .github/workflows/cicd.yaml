@@ -1,75 +1,67 @@
-name: DevSecOps CI/CD
+name: DevSecOps CI/CD pipeline
 
 on:
   push:
-    branches: [main]
+    branches: ["main"]
+  workflow_dispatch:
+
+env:
+  # ✅ MUST be lowercase for GHCR
+  GHCR_REGISTRY: ghcr.io
+  IMAGE_OWNER: daudamin12
+  IMAGE_REPO: devsecops-app
+  IMAGE_TAG: latest
 
 jobs:
-  pipeline:
+  build_scan_push_deploy:
+    name: Build + Scan + Push + Deploy
     runs-on: self-hosted
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate Semantic Version
-        id: version
-        uses: paulhatch/semantic-version@v5.4.0
-        with:
-          tag_prefix: "v"
-          format: "${major}.${minor}.${patch}"
-          major_pattern: "BREAKING CHANGE"
-          minor_pattern: "feat"
-
       - name: Print version
-        run: echo "VERSION=${{ steps.version.outputs.version }}"
-
-      - name: Set lowercase owner
-        id: owner
         run: |
-          echo "OWNER_LOWER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "VERSION=${{ env.IMAGE_TAG }}"
+          echo "IMAGE=${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }}"
 
+      # ✅ Recommended: Buildx
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ✅ Login to GHCR (uses your repo secret GHCR_PAT)
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ env.IMAGE_OWNER }}
+          password: ${{ secrets.GHCR_PAT }}
+
+      # ✅ Build image locally (tagged)
       - name: Build Docker Image
         run: |
-          VERSION=${{ steps.version.outputs.version }}
-          docker build --no-cache \
-            -t ghcr.io/$OWNER_LOWER/devsecops-app:$VERSION \
-            -t ghcr.io/$OWNER_LOWER/devsecops-app:latest \
-            -f app/Dockerfile app/
+          docker build -t ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }} ./app
 
+      # ✅ Trivy scan (fails pipeline on HIGH/CRITICAL)
       - name: Scan Image with Trivy
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ghcr.io/${{ env.OWNER_LOWER }}/devsecops-app:latest
-          severity: CRITICAL,HIGH
+          image-ref: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }}
+          format: table
+          exit-code: "1"
           ignore-unfixed: true
-          exit-code: "0"
+          vuln-type: "os,library"
+          severity: "HIGH,CRITICAL"
 
-      - name: Login to GHCR
-        run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Push Images
+      # ✅ Push to GHCR
+      - name: Push Image to GHCR
         run: |
-          VERSION=${{ steps.version.outputs.version }}
-          docker push ghcr.io/$OWNER_LOWER/devsecops-app:$VERSION
-          docker push ghcr.io/$OWNER_LOWER/devsecops-app:latest
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.IMAGE_REPO }}:${{ env.IMAGE_TAG }}
 
-      - name: Create GHCR Secret
+      # ✅ Deploy to Kubernetes (requires kubectl + cluster access on runner)
+      - name: Deploy to Kubernetes
         run: |
-          kubectl delete secret ghcr-secret --ignore-not-found=true
-          kubectl create secret docker-registry ghcr-secret \
-            --docker-server=ghcr.io \
-            --docker-username=${{ github.actor }} \
-            --docker-password="${{ secrets.GHCR_PAT }}" \
-            --docker-email=dummy@example.com
-
-      - name: Apply Manifests
-        run: kubectl apply -f k8s/
-
-      - name: Patch Deployment With Version
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-          kubectl set image deployment/devsecops-app web=ghcr.io/$OWNER_LOWER/devsecops-app:$VERSION
-
-      - name: Wait for Rollout
-        run: kubectl rollout status deployment/devsecops-app
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl rollout status deployment/devsecops-app
